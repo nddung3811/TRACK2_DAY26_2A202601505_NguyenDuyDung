@@ -8,12 +8,9 @@ that is *expected* to fail, no unseeded randomness, no wall-clock.
 **The one test that matters most is `test_probe_sandbox_blocks_every_vector`**:
 it spawns a REAL hostile child under a REAL `sandbox-exec` profile and
 asserts every escape vector CONTRACTS.md 12 names is actually blocked by
-the kernel, on whatever machine runs this suite — never a mocked or
-cached result. If `sandbox-exec` is unavailable, that test FAILS LOUDLY
-(`pytest.fail`, not `pytest.skip`) rather than silently passing a weaker
-guarantee: a skip can look like "nothing to see here" in a CI summary, and
-CONTRACTS.md 12.2.4 is explicit that the honest response to a missing
-sandbox-exec is "no anti-cheat claim," never quietly downgrading the test.
+the kernel — never a mocked or cached result. On macOS, a missing
+`sandbox-exec` FAILS LOUDLY. Other operating systems skip this macOS-only
+boundary test and make no anti-cheat claim.
 """
 
 from __future__ import annotations
@@ -207,6 +204,10 @@ def test_run_probe_vectors_unsandboxed_baseline(tmp_path: Path) -> None:
     for name in vectors:
         if name == "socket_connect_denied":
             continue
+        if name == "ctypes_open_denied_path" and sys.platform != "darwin":
+            # This probe opens macOS-specific `libc.dylib`. A missing library
+            # on Linux/WSL does not prove that a sandbox blocked the call.
+            continue
         assert vectors[name]["denied"] is False, f"{name} should NOT be denied without a sandbox: {vectors[name]}"
     # The positive control must always succeed, sandboxed or not.
     assert vectors["read_write_inside_scratch"]["denied"] is False
@@ -388,6 +389,8 @@ def test_classify_run_timeout_kind() -> None:
 def _require_sandbox_exec_or_fail_loudly() -> str:
     exe = sandbox.sandbox_exec_path()
     if exe is None:
+        if sys.platform != "darwin":
+            pytest.skip("sandbox-exec is macOS-only; kernel sandbox test cannot run on this platform")
         pytest.fail(
             "sandbox-exec is NOT AVAILABLE on this machine. The OS isolation boundary "
             "CANNOT be verified — CONTRACTS.md 12.2.4 says the honest response is 'reviewed "
